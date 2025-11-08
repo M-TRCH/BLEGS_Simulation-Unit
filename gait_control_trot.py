@@ -9,34 +9,33 @@ p.setAdditionalSearchPath(pybullet_data.getDataPath())
 p.setGravity(0, 0, -9.81)
 planeId = p.loadURDF("plane.urdf")
 
-# 2. โหลดหุ่นยนต์ (URDF ที่แก้ไขแล้ว)
+# 2. โหลดหุ่นยนต์ (URDF ที่ hip_joint เป็น fixed)
 urdf_path = "urdf/my_robot.urdf"
 startPos = [0, 0, 0.5]
 startOrientation = p.getQuaternionFromEuler([0, 0, 0])
 robotId = p.loadURDF(urdf_path, startPos, startOrientation)
 
 # =====================================================================
-# 3. (CHANGED) รวบรวม Joints และ Links (เพิ่ม .strip())
+# 3. (CHANGED) รวบรวม Joints และ Links (แก้บั๊ก .strip() ที่แท้จริง)
 # =====================================================================
 joint_name_to_id = {}
 link_name_to_id = {}
 
 num_joints = p.getNumJoints(robotId)
-print(f"--- (v11 Debug) Reading {num_joints} Joints ---")
+print(f"--- (v13 Debug) Reading {num_joints} Joints ---")
 
 for i in range(num_joints):
     joint_info = p.getJointInfo(robotId, i)
     
-    # (FIX) .strip() เพื่อตัดช่องว่างที่มองไม่เห็นออก
-    joint_name = joint_info[1].decode('utf-8').strip() 
-    joint_type = joint_info[2]
-    link_name = joint_info[12].decode('utf-8').strip() # (FIX) .strip() ที่นี่ด้วย
+    # (!!! THIS IS THE FIX !!!)
+    # แทนที่ช่องว่างพิเศษ (ASCII 160) ก่อน แล้วค่อย strip
+    joint_name = joint_info[1].decode('utf-8').replace(u'\xa0', u' ').strip()
+    link_name = joint_info[12].decode('utf-8').replace(u'\xa0', u' ').strip()
+    # (!!! END OF FIX !!!)
     
-    print(f"  Found Joint Index {i}: '{joint_name}' (Type: {joint_type})") # DEBUG
+    print(f"  Found Joint Index {i}: '{joint_name}' (Type: {joint_info[2]})") # DEBUG
     
     joint_name_to_id[joint_name] = i
-    
-    # ป้องกัน Error ถ้า Link ไม่มีชื่อ (เช่น base_link)
     if link_name: 
         link_name_to_id[link_name] = i 
 
@@ -53,7 +52,6 @@ joint_id_to_ik_index = {joint_id: idx for idx, joint_id in enumerate(controllabl
 
 print("--- Debug: Finished populating dictionary ---")
 
-# (CHANGED) ดึง ID จาก dict ที่ "สะอาด" แล้ว
 FR_foot_link_id = link_name_to_id['FR_foot_link']
 FL_foot_link_id = link_name_to_id['FL_foot_link']
 RR_foot_link_id = link_name_to_id['RR_foot_link']
@@ -70,7 +68,7 @@ RR_all_joint_ids = [joint_name_to_id['RR_hip_joint'], joint_name_to_id['RR_thigh
 RL_all_joint_ids = [joint_name_to_id['RL_hip_joint'], joint_name_to_id['RL_thigh_joint'], joint_name_to_id['RL_shank_joint']]
 
 # =====================================================================
-# 4. ตั้งค่าพารามิเตอร์ (เหมือนเดิม)
+# 4. ตั้งค่าพารามิเตอร์ (จูนจาก v12)
 # =====================================================================
 base_x = 0.195 
 base_y = 0.145 
@@ -81,9 +79,11 @@ home_foot_positions = {
     'RR_foot_link': [-base_x, -base_y, z_height],
     'RL_foot_link': [-base_x, base_y, z_height],
 }
-STEP_LENGTH = 0.05
-LIFT_HEIGHT = 0.05 
-STEP_TIME = 0.6 
+
+STEP_LENGTH = 0.04  # ลดจาก 0.05 เป็น 0.04 (ก้าวเล็กลง)
+LIFT_HEIGHT = 0.04  # ลดจาก 0.05 เป็น 0.04 (ยกเท้าต่ำลง)
+STEP_TIME = 0.6     # เพิ่มจาก 0.5 เป็น 0.6 (เดินช้าลง)
+
 gait_state = 0 
 state_timer = 0.0
 sim_time = 0.0
@@ -92,13 +92,14 @@ pair_1 = ['FR_foot_link', 'RL_foot_link']
 pair_2 = ['FL_foot_link', 'RR_foot_link']
 WARMUP_TIME = 2.0 
 is_walking = False 
-BALANCE_KP_PITCH = 0.01
-BALANCE_KD_PITCH = 0.02
+
+BALANCE_KP_PITCH = 0.005  # ลดจาก 0.02 เป็น 0.005 (ชดเชยนุ่มนวลขึ้น)
+BALANCE_KD_PITCH = 0.01   # ลดจาก 0.05 เป็น 0.01 (ลดการตอบสนองเร็ว)
 prev_pitch_error = 0.0
 # =====================================================================
 
 # 5. Main Simulation Loop
-print("\n--- เริ่มการจำลอง (Gait Control v11: Fixed 2-DOF) ---")
+print("\n--- เริ่มการจำลอง (Gait Control v13: Robust Names) ---")
 print(f"--- WARMING UP for {WARMUP_TIME} seconds... ---")
 try:
     while True:
@@ -108,7 +109,7 @@ try:
         # 5.1: WARM-UP LOGIC
         if not is_walking and sim_time >= WARMUP_TIME:
             is_walking = True
-            print("--- WARM-UP COMPLETE. Starting 2-DOF Trot. ---")
+            print("--- WARM-UP COMPLETE. Starting 2-DOF Compliant Trot. ---")
             state_timer = 0.0
         
         # 5.2: State Machine Logic
@@ -179,23 +180,30 @@ try:
             # แก้ไข: ใช้ jointDamping แทน jointIndices
             joint_angles_all = p.calculateInverseKinematics(
                 robotId, current_foot_link_id, world_target_pos, 
-                jointDamping=[0.1] * num_joints,  # ต้องเท่ากับจำนวน joint ทั้งหมด
+                jointDamping=[0.1] * num_joints,
                 maxNumIterations=50
             )
-
+            
             # ดึงมุมของ thigh และ shank ด้วย mapping
             target_angles_for_leg = [joint_angles_all[joint_id_to_ik_index[j]] for j in current_moveable_joint_ids]
 
-            # (CHANGED) ใช้ Stiff Gains ตลอด
-            p.setJointMotorControlArray(
-                robotId, 
-                jointIndices=current_moveable_joint_ids, 
-                controlMode=p.POSITION_CONTROL,
-                targetPositions=target_angles_for_leg,
-                forces=[10] * len(current_moveable_joint_ids),
-                positionGains=[0.8] * len(current_moveable_joint_ids), # STIFF
-                velocityGains=[1.0] * len(current_moveable_joint_ids)
-            )
+            # (Dual-Gain Logic - ปรับให้นุ่มนวลขึ้น)
+            if is_walking:
+                p.setJointMotorControlArray(
+                    robotId, current_moveable_joint_ids, p.POSITION_CONTROL,
+                    targetPositions=target_angles_for_leg,
+                    forces=[8] * len(current_moveable_joint_ids),  # ลดจาก 10 เป็น 8
+                    positionGains=[0.3] * len(current_moveable_joint_ids), # ลดจาก 0.4 เป็น 0.3 (นุ่มนวลขึ้น)
+                    velocityGains=[0.6] * len(current_moveable_joint_ids)  # ลดจาก 0.8 เป็น 0.6
+                )
+            else: # WARM-UP
+                p.setJointMotorControlArray(
+                    robotId, current_moveable_joint_ids, p.POSITION_CONTROL,
+                    targetPositions=target_angles_for_leg,
+                    forces=[10] * len(current_moveable_joint_ids),
+                    positionGains=[0.6] * len(current_moveable_joint_ids), # ลดจาก 0.8 เป็น 0.6
+                    velocityGains=[0.8] * len(current_moveable_joint_ids)  # ลดจาก 1.0 เป็น 0.8
+                )
         
         # 5.5: Step Simulation
         p.stepSimulation()
@@ -203,6 +211,10 @@ try:
 
 except KeyboardInterrupt:
     print("\n--- หยุดการจำลอง ---")
+except KeyError as e:
+    print(f"\n--- ❌ CRITICAL: KeyError (ไม่พบชื่อ Joint/Link) ---")
+    print(f"   ไม่พบ Key: {e}")
+    print("   โปรดตรวจสอบไฟล์ .urdf ว่ามีช่องว่างพิเศษ หรือสะกดผิดหรือไม่")
 except p.error as e:
     print(f"\n--- เกิดข้อผิดพลาดร้ายแรงกับ PyBullet! ---")
     print(e)
