@@ -20,7 +20,7 @@
         </inertial>
     </link>
 
-    <joint name="FR_hip_joint" type="revolute">
+    <joint name="FR_hip_joint" type="fixed">
         <parent link="base_link"/>
         <child link="FR_hip_link"/>
         <origin xyz="0.195 -0.145 0" rpy="0 0 0"/> 
@@ -130,7 +130,7 @@
         </inertial>
     </link>
 
-    <joint name="FL_hip_joint" type="revolute">
+    <joint name="FL_hip_joint" type="fixed">
         <parent link="base_link"/>
         <child link="FL_hip_link"/>
         <origin xyz="0.195 0.145 0" rpy="0 0 0"/> 
@@ -241,7 +241,7 @@
         </inertial>
     </link>
 
-    <joint name="RR_hip_joint" type="revolute">
+    <joint name="RR_hip_joint" type="fixed">
         <parent link="base_link"/>
         <child link="RR_hip_link"/>
         <origin xyz="-0.195 -0.145 0" rpy="0 0 0"/> 
@@ -352,7 +352,7 @@
         </inertial>
     </link>
 
-    <joint name="RL_hip_joint" type="revolute">
+    <joint name="RL_hip_joint" type="fixed">
         <parent link="base_link"/>
         <child link="RL_hip_link"/>
         <origin xyz="-0.195 0.145 0" rpy="0 0 0"/> 
