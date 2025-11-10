@@ -68,21 +68,27 @@ RR_all_joint_ids = [joint_name_to_id['RR_hip_joint'], joint_name_to_id['RR_thigh
 RL_all_joint_ids = [joint_name_to_id['RL_hip_joint'], joint_name_to_id['RL_thigh_joint'], joint_name_to_id['RL_shank_joint']]
 
 # =====================================================================
-# 4. ตั้งค่าพารามิเตอร์ (จูนจาก v12)
+# 4. ตั้งค่าพารามิเตอร์ (อัพเดทตามสเปค URDF ใหม่)
 # =====================================================================
-base_x = 0.195 
-base_y = 0.145 
-z_height = -0.25 
+# ตำแหน่ง Hip (ตาม URDF ใหม่)
+base_x_front = 0.19875  # FR/FL hip position x
+base_x_rear = 0.16      # RR/RL hip position x
+base_y = 0.1535         # hip position y (±)
+z_height = -0.20        # ความสูงยืน (ขายาว 250mm = 105+145)
+
+# ใช้ค่ากลางเพื่อความสมมาตร (ป้องกันการเลี้ยว)
+base_x_avg = (base_x_front + base_x_rear) / 2.0  # 0.179375
+
 home_foot_positions = {
-    'FR_foot_link': [base_x, -base_y, z_height],
-    'FL_foot_link': [base_x, base_y, z_height],
-    'RR_foot_link': [-base_x, -base_y, z_height],
-    'RL_foot_link': [-base_x, base_y, z_height],
+    'FR_foot_link': [base_x_avg, -base_y, z_height],
+    'FL_foot_link': [base_x_avg, base_y, z_height],
+    'RR_foot_link': [-base_x_avg, -base_y, z_height],
+    'RL_foot_link': [-base_x_avg, base_y, z_height],
 }
 
-STEP_LENGTH = 0.04  # ลดจาก 0.05 เป็น 0.04 (ก้าวเล็กลง)
-LIFT_HEIGHT = 0.04  # ลดจาก 0.05 เป็น 0.04 (ยกเท้าต่ำลง)
-STEP_TIME = 0.6     # เพิ่มจาก 0.5 เป็น 0.6 (เดินช้าลง)
+STEP_LENGTH = 0.05  # ก้าว 50mm (ลดลงเพื่อความนุ่มนวล)
+LIFT_HEIGHT = 0.05  # ยกขา 50mm (ลดลงเพื่อความเสถียร)
+STEP_TIME = 0.6     # เดินช้าลงเพื่อความนุ่มนวล
 
 gait_state = 0 
 state_timer = 0.0
@@ -93,9 +99,12 @@ pair_2 = ['FL_foot_link', 'RR_foot_link']
 WARMUP_TIME = 2.0 
 is_walking = False 
 
-BALANCE_KP_PITCH = 0.005  # ลดจาก 0.02 เป็น 0.005 (ชดเชยนุ่มนวลขึ้น)
-BALANCE_KD_PITCH = 0.01   # ลดจาก 0.05 เป็น 0.01 (ลดการตอบสนองเร็ว)
+BALANCE_KP_PITCH = 0.006  # ลดลงเพื่อความนุ่มนวล
+BALANCE_KD_PITCH = 0.012  # ลดลงเพื่อความนุ่มนวล
 prev_pitch_error = 0.0
+
+# Joint Damping สำหรับ compliance
+JOINT_DAMPING = 0.5  # เพิ่ม damping เพื่อความนุ่มนวล
 # =====================================================================
 
 # 5. Main Simulation Loop
@@ -177,32 +186,32 @@ try:
 
             world_target_pos, _ = p.multiplyTransforms(basePos, baseOrn, corrected_target_pos_REL, [0, 0, 0, 1])
             
-            # แก้ไข: ใช้ jointDamping แทน jointIndices
+            # ใช้ jointDamping สูงขึ้นเพื่อ compliance
             joint_angles_all = p.calculateInverseKinematics(
                 robotId, current_foot_link_id, world_target_pos, 
-                jointDamping=[0.1] * num_joints,
+                jointDamping=[JOINT_DAMPING] * num_joints,
                 maxNumIterations=50
             )
             
             # ดึงมุมของ thigh และ shank ด้วย mapping
             target_angles_for_leg = [joint_angles_all[joint_id_to_ik_index[j]] for j in current_moveable_joint_ids]
 
-            # (Dual-Gain Logic - ปรับให้นุ่มนวลขึ้น)
+            # (Dual-Gain Logic - ปรับเพื่อความนุ่มนวล)
             if is_walking:
                 p.setJointMotorControlArray(
                     robotId, current_moveable_joint_ids, p.POSITION_CONTROL,
                     targetPositions=target_angles_for_leg,
-                    forces=[8] * len(current_moveable_joint_ids),  # ลดจาก 10 เป็น 8
-                    positionGains=[0.3] * len(current_moveable_joint_ids), # ลดจาก 0.4 เป็น 0.3 (นุ่มนวลขึ้น)
-                    velocityGains=[0.6] * len(current_moveable_joint_ids)  # ลดจาก 0.8 เป็น 0.6
+                    forces=[9] * len(current_moveable_joint_ids),
+                    positionGains=[0.3] * len(current_moveable_joint_ids), # ลดเป็น 0.3 (นุ่มนวลขึ้น)
+                    velocityGains=[0.5] * len(current_moveable_joint_ids)  # ลดเป็น 0.5 (นุ่มนวลขึ้น)
                 )
             else: # WARM-UP
                 p.setJointMotorControlArray(
                     robotId, current_moveable_joint_ids, p.POSITION_CONTROL,
                     targetPositions=target_angles_for_leg,
                     forces=[10] * len(current_moveable_joint_ids),
-                    positionGains=[0.6] * len(current_moveable_joint_ids), # ลดจาก 0.8 เป็น 0.6
-                    velocityGains=[0.8] * len(current_moveable_joint_ids)  # ลดจาก 1.0 เป็น 0.8
+                    positionGains=[0.5] * len(current_moveable_joint_ids), # ลดเป็น 0.5
+                    velocityGains=[0.7] * len(current_moveable_joint_ids)  # ลดเป็น 0.7
                 )
         
         # 5.5: Step Simulation
