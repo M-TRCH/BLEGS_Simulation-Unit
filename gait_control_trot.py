@@ -99,9 +99,14 @@ pair_2 = ['FL_foot_link', 'RR_foot_link']
 WARMUP_TIME = 2.0 
 is_walking = False 
 
-BALANCE_KP_PITCH = 0.006  # ลดลงเพื่อความนุ่มนวล
-BALANCE_KD_PITCH = 0.012  # ลดลงเพื่อความนุ่มนวล
+# Balance Control (Pitch และ Roll)
+BALANCE_KP_PITCH = 0.006  # Pitch (หน้า-หลัง)
+BALANCE_KD_PITCH = 0.012
 prev_pitch_error = 0.0
+
+BALANCE_KP_ROLL = 0.006   # Roll (ซ้าย-ขวา)
+BALANCE_KD_ROLL = 0.012
+prev_roll_error = 0.0
 
 # Joint Damping สำหรับ compliance
 JOINT_DAMPING = 0.5  # เพิ่ม damping เพื่อความนุ่มนวล
@@ -128,9 +133,10 @@ try:
                 state_timer = 0.0 
                 gait_state = (gait_state + 1) % 2 
         
-        # 5.3: คำนวณพิกัดเป้าหมาย (Trot Logic + Pitch Balance)
+        # 5.3: คำนวณพิกัดเป้าหมาย (Trot Logic + Pitch & Roll Balance)
         target_foot_positions_REL = {} 
         pitch_correction = 0.0
+        roll_correction = 0.0
         
         if is_walking:
             # --- TROT LOGIC ---
@@ -147,13 +153,22 @@ try:
                 x_shift = STEP_LENGTH * (1.0 - state_progress * 2)
                 target_foot_positions_REL[leg_name] = [home_pos[0] + x_shift, home_pos[1], home_pos[2]]
             
-            # --- BALANCE (Pitch-Only) ---
+            # --- BALANCE (Pitch & Roll) ---
             euler_angles = p.getEulerFromQuaternion(baseOrn)
-            actual_pitch = euler_angles[1]
+            actual_roll = euler_angles[0]   # Roll (แกนหมุนตามแนวยาว X)
+            actual_pitch = euler_angles[1]  # Pitch (แกนหมุนตามแนวขวาง Y)
+            
+            # Pitch correction (หน้า-หลัง) -> แก้ไขตำแหน่ง X
             pitch_error = 0.0 - actual_pitch
             pitch_derivative = (pitch_error - prev_pitch_error) / time_step
             pitch_correction = (BALANCE_KP_PITCH * pitch_error) + (BALANCE_KD_PITCH * pitch_derivative)
             prev_pitch_error = pitch_error
+            
+            # Roll correction (ซ้าย-ขวา) -> แก้ไขตำแหน่ง Y
+            roll_error = 0.0 - actual_roll
+            roll_derivative = (roll_error - prev_roll_error) / time_step
+            roll_correction = (BALANCE_KP_ROLL * roll_error) + (BALANCE_KD_ROLL * roll_derivative)
+            prev_roll_error = roll_error
         
         else:
             # --- WARM-UP STATE ---
@@ -182,7 +197,8 @@ try:
                 continue
 
             corrected_target_pos_REL = list(target_pos_REL) 
-            corrected_target_pos_REL[0] += pitch_correction # X (Pitch)
+            corrected_target_pos_REL[0] += pitch_correction  # X (Pitch: หน้า-หลัง)
+            corrected_target_pos_REL[1] += roll_correction   # Y (Roll: ซ้าย-ขวา)
 
             world_target_pos, _ = p.multiplyTransforms(basePos, baseOrn, corrected_target_pos_REL, [0, 0, 0, 1])
             
